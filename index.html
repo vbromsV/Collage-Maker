@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Collage Maker</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    #controls { margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; }
+    #controls button, #controls select, #controls input[type="number"], #controls input[type="range"] { margin-right: 15px; }
+    canvas { border: 1px solid #ccc; display: block; margin-top: 10px; }
+    #rotateSlider { width: 150px; display: none; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <button id="addImageBtn">Add Image (<span id="imageCount">0</span>/3)</button>
+    <input type="file" id="singlePicker" accept="image/*" style="display:none;">
+
+    <label>
+      Layout:
+      <select id="orientation">
+        <option value="horizontal">Horizontal</option>
+        <option value="vertical">Vertical</option>
+      </select>
+    </label>
+
+    <label>
+      Aspect Ratio:
+      <select id="ratioSelect">
+        <option value="1:1">Square (1:1)</option>
+        <option value="16:9">Wide Screen (16:9)</option>
+        <option value="9:16">Vertical (9:16)</option>
+        <option value="4:5">Vertical (4:5)</option>
+        <option value="21:9">Cinematic (21:9)</option>
+        <option value="4:3" selected>Klassisk (4:3)</option>
+        <option value="3:4">3:4</option>
+        <option value="2:3">2:3</option>
+        <option value="3:2">3:2</option>
+        <option value="5:4">5:4</option>
+        <option value="free">Free</option>
+      </select>
+    </label>
+
+    <span id="freeRatioInputs" style="display:none;">
+      <input type="number" id="ratioW" min="1" value="4"> x
+      <input type="number" id="ratioH" min="1" value="3">
+      <button id="applyFreeRatio">Apply</button>
+    </span>
+
+    <button id="quickSaveBtn">Quick Save</button>
+    <button id="saveAsBtn">Save As…</button>
+    <button id="mirrorBtn">Mirror</button>
+    <button id="changeBtn">Change Image (<span id="selectedIdx">-</span>)</button>
+    <button id="rotateLeftBtn">⟲</button>
+    <button id="rotateRightBtn">⟳</button>
+    <input type="range" id="rotateSlider" min="0" max="360" step="1" value="0">
+  </div>
+  <canvas id="canvas"></canvas>
+  <script>
+    // Globals
+    let selectedIdx = null;
+    let lastRw = 4, lastRh = 3;
+    let saveCount = 1;
+    let defaultStartIn = null;
+    const HANDLE = 8;
+    let imagesData = [], fractions = [];
+    let dragIdx = null, panIdx = null, hoverIdx = null;
+    let startPos = {}, startOffset = {}, basePrev = 0, baseNext = 0;
+
+    // DOM references
+    const addBtn = document.getElementById('addImageBtn');
+    const singlePicker = document.getElementById('singlePicker');
+    const imageCountSpan = document.getElementById('imageCount');
+    const quickSaveBtn = document.getElementById('quickSaveBtn');
+    const saveAsBtn = document.getElementById('saveAsBtn');
+    const mirrorBtn = document.getElementById('mirrorBtn');
+    const changeBtn = document.getElementById('changeBtn');
+    const changePicker = document.createElement('input');
+    changePicker.type = 'file'; changePicker.accept = 'image/*'; changePicker.style.display = 'none';
+    document.body.appendChild(changePicker);
+    const rotateLeftBtn = document.getElementById('rotateLeftBtn');
+    const rotateRightBtn = document.getElementById('rotateRightBtn');
+    const rotateSlider = document.getElementById('rotateSlider');
+    const selectedIdxSpan = document.getElementById('selectedIdx');
+    const orientation = document.getElementById('orientation');
+    const ratioSelect = document.getElementById('ratioSelect');
+    const freeInputs = document.getElementById('freeRatioInputs');
+    const ratioWInput = document.getElementById('ratioW');
+    const ratioHInput = document.getElementById('ratioH');
+    const applyFreeBtn = document.getElementById('applyFreeRatio');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // 1) Add Image
+    addBtn.addEventListener('click', () => {
+      if (imagesData.length >= 3) { alert('Maximum of 3 images.'); return; }
+      singlePicker.click();
+    });
+    singlePicker.addEventListener('change', () => {
+      const file = singlePicker.files[0]; singlePicker.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+          imagesData.push({ img, baseScale:1, scale:1, offsetX:0, offsetY:0, angle:0, flip:false });
+          fractions = Array(imagesData.length).fill(1/imagesData.length);
+          imageCountSpan.textContent = imagesData.length;
+          applyRatio(lastRw, lastRh);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // 2) Ratio Change Handler
+    ratioSelect.addEventListener('change', () => {
+      if (ratioSelect.value === 'free') {
+        freeInputs.style.display = 'inline';
+      } else {
+        freeInputs.style.display = 'none';
+        [lastRw, lastRh] = ratioSelect.value.split(':').map(Number);
+        applyRatio(lastRw, lastRh);
+      }
+    });
+    applyFreeBtn.addEventListener('click', () => {
+      const rw = parseInt(ratioWInput.value, 10), rh = parseInt(ratioHInput.value, 10);
+      if (rw > 0 && rh > 0) {
+        lastRw = rw; lastRh = rh;
+        applyRatio(rw, rh);
+      }
+    });
+
+    // 3) Quick Save
+    quickSaveBtn.addEventListener('click', () => {
+      canvas.toBlob(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `collage${saveCount}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        saveCount++;
+      }, 'image/jpeg');
+    });
+
+    // 4) Save As…
+    saveAsBtn.addEventListener('click', async () => {
+      if (!window.showSaveFilePicker) { alert('Save As not supported'); return; }
+      try {
+        const opts = [{ description: 'Image', accept: { 'image/jpeg': ['.jpg'], 'image/png': ['.png'] } }];
+        const handle = await window.showSaveFilePicker({
+          suggestedName: `collage${saveCount}.jpg`,
+          startIn: defaultStartIn || 'documents',
+          types: opts
+        });
+        defaultStartIn = handle;
+        const writable = await handle.createWritable();
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg'));
+        await writable.write(blob);
+        await writable.close();
+        saveCount++;
+      } catch {}
+    });
+
+    // 5) Mirror
+    mirrorBtn.addEventListener('click', () => {
+      if (selectedIdx === null) { alert('Select an image first.'); return; }
+      imagesData[selectedIdx].flip = !imagesData[selectedIdx].flip;
+      drawAll();
+    });
+
+    // 6) Change Image
+    changeBtn.addEventListener('click', () => {
+      if (selectedIdx === null) { alert('Select a pane first.'); return; }
+      changePicker.click();
+    });
+    changePicker.addEventListener('change', () => {
+      const file = changePicker.files[0]; changePicker.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+          imagesData[selectedIdx] = { img, baseScale:1, scale:1, offsetX:0, offsetY:0, angle:0, flip:false };
+          fractions = Array(imagesData.length).fill(1/imagesData.length);
+          applyRatio(lastRw, lastRh);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // 7) Rotation Controls
+    rotateLeftBtn.addEventListener('click', () => { if (selectedIdx!==null){ imagesData[selectedIdx].angle-=Math.PI/180; showSlider(); drawAll(); }});
+    rotateRightBtn.addEventListener('click', () => { if (selectedIdx!==null){ imagesData[selectedIdx].angle+=Math.PI/180; showSlider(); drawAll(); }});
+    rotateSlider.addEventListener('input', () => { if (selectedIdx!==null){ imagesData[selectedIdx].angle=parseFloat(rotateSlider.value)*Math.PI/180; drawAll(); }});
+    function showSlider(){ rotateSlider.style.display='inline'; updateSlider(); }
+    function updateSlider(){ const deg=((imagesData[selectedIdx].angle*180/Math.PI)%360+360)%360; rotateSlider.value=deg; }
+
+    // 8) Canvas Events
+    canvas.addEventListener('mousedown', startInteraction);
+    canvas.addEventListener('mousemove', moveInteraction);
+    canvas.addEventListener('mouseup', e=>{ swapOnDrop(e); dragIdx=panIdx=null; });
+    canvas.addEventListener('wheel', e=>{ e.preventDefault(); zoom(e); });
+
+    // 9) Core Interaction Functions
+    function startInteraction(e){ dragIdx=panIdx=hoverIdx=null; const [mx,my]=getMousePos(e); const tot=orientation.value==='horizontal'?canvas.width:canvas.height; let acc=0; for(let i=1;i<fractions.length;i++){ acc+=fractions[i-1]*tot; if(Math.abs((orientation.value==='horizontal'?mx:my)-acc)<HANDLE){ dragIdx=i; basePrev=fractions[i-1]; baseNext=fractions[i]; return; }} const idx=getPaneIndex(mx,my); if(idx!==null){ selectedIdx=idx; selectedIdxSpan.textContent=idx+1; panIdx=idx; startPos={x:mx,y:my}; startOffset={x:imagesData[idx].offsetX,y:imagesData[idx].offsetY}; showSlider(); }}
+    function moveInteraction(e){ const [mx,my]=getMousePos(e); const tot=orientation.value==='horizontal'?canvas.width:canvas.height; if(dragIdx===null&&panIdx===null){ hoverIdx=null; let acc=0; for(let i=1;i<fractions.length;i++){ acc+=fractions[i-1]*tot; if(Math.abs((orientation.value==='horizontal'?mx:my)-acc)<HANDLE){ hoverIdx=i; break; }} canvas.style.cursor=hoverIdx!==null?(orientation.value==='horizontal'?'col-resize':'row-resize'):'crosshair'; drawAll(); return;} if(dragIdx!==null){ const start=fractions.slice(0,dragIdx-1).reduce((a,b)=>a+b,0)*tot; let d=((orientation.value==='horizontal'?mx:my)-start)/tot; d=Math.max(0.05,Math.min(basePrev+baseNext-0.05,d)); fractions[dragIdx-1]=d; fractions[dragIdx]=basePrev+baseNext-d; drawAll(); return;} if(panIdx!==null){ const dx=mx-startPos.x, dy=my-startPos.y; const d=imagesData[panIdx]; d.offsetX=startOffset.x+dx; d.offsetY=startOffset.y+dy; drawAll(); }}
+    function swapOnDrop(e){ const [mx,my]=getMousePos(e); if(panIdx!==null){ const di=getPaneIndex(mx,my); if(di!==null&&di!==panIdx){ [imagesData[panIdx],imagesData[di]]=[imagesData[di],imagesData[panIdx]]; initSizes(); }}}
+    function zoom(e){ const [mx,my]=getMousePos(e); const pi=getPaneIndex(mx,my); if(pi!==null){ const f=e.deltaY<0?1.1:0.9; const d=imagesData[pi]; d.scale=Math.max(d.baseScale*0.5,Math.min(d.baseScale*5,d.scale*f)); drawAll(); }}
+    function getPaneIndex(x,y){ let acc=0; const tot=orientation.value==='horizontal'?canvas.width:canvas.height; for(let i=0;i<imagesData.length;i++){ const sl=fractions[i]*tot; if((orientation.value==='horizontal'?x>=acc&&x<=acc+sl:y>=acc&&y<=acc+sl))return i; acc+=sl;} return null; }
+    function getMousePos(e){ const rect=canvas.getBoundingClientRect(); return[(e.clientX-rect.left)*(canvas.width/rect.width),(e.clientY-rect.top)*(canvas.height/rect.height)]; }
+    function applyRatio(rw,rh){ const controlsHeight=document.getElementById('controls').offsetHeight+20; const availW=window.innerWidth*0.9; const availH=window.innerHeight-controlsHeight-20; let w=availW, h=availW*(rh/rw); if(h>availH){ h=availH; w=availH*(rw/rh);} canvas.width=Math.round(w); canvas.height=Math.round(h); canvas.style.width=canvas.width+'px'; canvas.style.height=canvas.height+'px'; initSizes(); drawAll(); }
+    function initSizes(){ const W=canvas.width,H=canvas.height; imagesData.forEach(d=>{ const base=orientation.value==='horizontal'?H/d.img.height:W/d.img.width; d.baseScale=base; d.scale=base; d.offsetX=0; d.offsetY=0; }); }
+    function drawAll(){ const W=canvas.width,H=canvas.height; ctx.clearRect(0,0,W,H); let off=0; imagesData.forEach((d,i)=>{ const w=orientation.value==='horizontal'?fractions[i]*W:W, h=orientation.value==='horizontal'?H:fractions[i]*H; ctx.save(); ctx.beginPath(); if(orientation.value==='horizontal')ctx.rect(off,0,w,H);else ctx.rect(0,off,W,h); ctx.clip(); const iw=d.img.width*d.scale, ih=d.img.height*d.scale; const cx=orientation.value==='horizontal'?off+w/2:W/2, cy=orientation.value==='horizontal'?H/2:off+h/2; ctx.translate(cx+d.offsetX,cy+d.offsetY); if(d.flip)ctx.scale(-1,1); ctx.rotate(d.angle); ctx.drawImage(d.img,-iw/2,-ih/2,iw,ih); ctx.restore(); off+=(orientation.value==='horizontal'?w:h); }); if(hoverIdx!==null&&dragIdx===null){ const tot=orientation.value==='horizontal'?canvas.width:canvas.height, a=fractions.slice(0,hoverIdx).reduce((s,f)=>s+f,0)*tot; ctx.fillStyle='rgba(0,120,215,0.5)'; if(orientation.value==='horizontal')ctx.fillRect(a-HANDLE/2,0,HANDLE,H);else ctx.fillRect(0,a-HANDLE/2,W,HANDLE);} }
+
+    // Initialization
+    window.addEventListener('resize', ()=>applyRatio(lastRw,lastRh));
+    applyRatio(lastRw,lastRh);
+  </script>
+    <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('service-worker.js')
+        .catch(err => console.error('SW registration failed:', err));
+    }
+  </script>
+</body>
+</html>
