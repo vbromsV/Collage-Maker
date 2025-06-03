@@ -1,7 +1,7 @@
 {
-  "name": "Simple Collage Maker Mobile",
+  "name": "Simple Collage Maker",
   "short_name": "Collage",
-  "description": "A simple image collage PWA for desktop and mobile.",
+  "description": "A simple image collage PWA for desktop.",
   "start_url": "./index.html",
   "display": "standalone",
   "theme_color": "#ffffff",
