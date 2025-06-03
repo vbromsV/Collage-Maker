@@ -1,8 +1,11 @@
 {
-  "name": "Your App Name",
+  "name": "Simple Collage Maker Mobile",
   "short_name": "Collage",
+  "description": "A simple image collage PWA for desktop and mobile.",
   "start_url": "./index.html",
   "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
   "icons": [
     {
       "src": "icons/icon-192.png",
@@ -15,5 +18,4 @@
       "type": "image/png"
     }
   ]
-  // …any other properties you’ve added…
 }
