@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <link rel="manifest" href="manifest.json">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Simple Collage Maker Mobile</title>
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#ffffff">
   <style>
     body { font-family: sans-serif; margin: 0; padding: 10px; }
     #controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
@@ -63,7 +65,11 @@
 
     // DOM refs
     const singlePicker = document.getElementById('singlePicker');
-    const changeBtns = [document.getElementById('changeBtn0'), document.getElementById('changeBtn1'), document.getElementById('changeBtn2')];
+    const changeBtns = [
+      document.getElementById('changeBtn0'),
+      document.getElementById('changeBtn1'),
+      document.getElementById('changeBtn2')
+    ];
     const orientation = document.getElementById('orientation');
     const ratioSelect = document.getElementById('ratioSelect');
     const applyFree = document.getElementById('applyFreeRatio');
@@ -184,6 +190,12 @@
 
     window.addEventListener('resize', () => applyRatio(lastRw,lastRh));
     applyRatio(lastRw,lastRh);
+
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js')
+        .catch(err => console.error('SW registration failed:', err));
+    }
   </script>
 </body>
 </html>
