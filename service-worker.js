@@ -1,4 +1,4 @@
-const CACHE_NAME = 'collage-mobile-cache-v1';
+const CACHE_NAME = 'collage-cache-v1';
 const urlsToCache = [
   './',
   './index.html',
@@ -22,7 +22,6 @@ self.addEventListener('fetch', event => {
 });
 
 self.addEventListener('activate', event => {
-  // Clean up old caches if needed
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
